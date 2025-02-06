@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced OSM with Live Location & Layers</title>
+
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.locatecontrol@0.83.1/dist/L.Control.Locate.min.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-measure@3.1.0/dist/leaflet-measure.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-search/dist/leaflet-search.css" />
+
+    <style>
+        #map {
+            height: 600px;
+            width: 100%;
+        }
+        #user-location {
+            margin-bottom: 10px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h2>OSM MAPPING</h2>
+    <p id="user-location">Latitude: -, Longitude: -</p>
+    <div id="map"></div>
+
+   
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet.locatecontrol@0.83.1/dist/L.Control.Locate.min.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-measure@3.1.0/dist/leaflet-measure.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script src="https://unpkg.com/leaflet-search/dist/leaflet-search.src.js"></script>
+
+    <script>
+        var map = L.map('map', {
+            center: [28.5149, 77.3777],
+            zoom: 13,
+            zoomControl: true,
+            maxZoom: 19,
+            minZoom: 5
+        });
+
+       
+        var standardOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        });
+
+        var satelliteMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: '&copy; Esri & Contributors'
+        });
+
+        var topoMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenTopoMap contributors'
+        });
+
+        // Add default layer
+        standardOSM.addTo(map); 
+
+       
+        var apiKey = "69cb6d53988feacb5435888a4b0ce238";
+        var tempLayer = L.tileLayer(`https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${apiKey}`);
+        var cloudLayer = L.tileLayer(`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${apiKey}`);
+        var rainLayer = L.tileLayer(`https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${apiKey}`);
+        var windLayer = L.tileLayer(`https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${apiKey}`);
+
+        
+        var baseMaps = {
+            "Standard OSM": standardOSM,
+            "Satellite Map": satelliteMap,
+            "Topographic Map": topoMap
+        };
+        var overlayMaps = {
+            "Temperature": tempLayer,
+            "Clouds": cloudLayer,
+            "Rain": rainLayer,
+            "Wind": windLayer
+        };
+        L.control.layers(baseMaps, overlayMaps, { collapsed: true }).addTo(map);
+
+        
+        var geoJsonLayer = L.geoJSON({
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [77.375, 28.516]
+                    },
+                    "properties": { "name": "Point A" }
+                }
+            ]
+        }).addTo(map);
+
+        
+        L.control.locate({
+            position: "bottomleft",
+            setView: "untilPanOrZoom",
+            
+            flyTo: true,
+            showPopup: true,
+            strings: { title: "Show my location" }
+        }).addTo(map);
+
+        
+        var currentMarker = null;
+        function updateLocation(lat, lng) {
+            document.getElementById('user-location').innerText = `Latitude: ${lat}, Longitude: ${lng}`;
+            if (currentMarker) {
+                map.removeLayer(currentMarker);
+            }
+            currentMarker = L.marker([lat, lng]).addTo(map)
+                .bindPopup(`Lat: ${lat}, Lng: ${lng}`).openPopup();
+        }
+
+        function onLocationFound(e) {
+            var lat = e.latlng.lat.toFixed(5);
+            var lng = e.latlng.lng.toFixed(5);
+            updateLocation(lat, lng);
+        }
+
+        map.on('locationfound', onLocationFound);
+
+        map.on('moveend', function () {
+            var center = map.getCenter();
+            var lat = center.lat.toFixed(5);
+            var lng = center.lng.toFixed(5);
+            updateLocation(lat, lng);
+        });
+
+        map.on('click', function (e) {
+            var lat = e.latlng.lat.toFixed(5);
+            var lng = e.latlng.lng.toFixed(5);
+            updateLocation(lat, lng);
+        });
+
+        navigator.geolocation.watchPosition(
+            (position) => {
+                var lat = position.coords.latitude.toFixed(5);
+                var lng = position.coords.longitude.toFixed(5);
+                updateLocation(lat, lng);
+            },
+            (error) => {
+                console.error("Error getting location", error);
+            },
+            { enableHighAccuracy: true, maximumAge: 10000 }
+        );
+
+        
+        var routingControl = L.Routing.control({
+            waypoints: [
+                L.latLng(28.5800, 77.4100),  
+                L.latLng(28.5500, 77.4300)  
+            ],
+            routeWhileDragging: true
+        }).addTo(map);
+
+        var startMarker = null, endMarker = null;
+
+        
+        map.on('click', function (e) {
+            if (!startMarker) {
+                startMarker = L.marker(e.latlng).addTo(map).bindPopup('Start Point');
+            } else if (!endMarker) {
+                endMarker = L.marker(e.latlng).addTo(map).bindPopup('End Point');
+                routingControl.setWaypoints([startMarker.getLatLng(), endMarker.getLatLng()]);
+            } else {
+                startMarker.setLatLng(e.latlng);
+                routingControl.setWaypoints([startMarker.getLatLng(), endMarker.getLatLng()]);
+            }
+        });
+
+       
+        var drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+
+        var drawControl = new L.Control.Draw({
+            edit: {
+                featureGroup: drawnItems
+            },
+            draw: {
+                polyline: true,
+                polygon: true,
+                rectangle: true,
+                circle: true,
+                marker: true
+            }
+        });
+        map.addControl(drawControl);
+
+        map.on('draw:created', function (e) {
+            var layer = e.layer;
+            drawnItems.addLayer(layer); 
+            console.log('Shape drawn:', layer);
+        });
+
+       
+        L.Control.geocoder({
+    defaultMarkGeocode: false
+})
+.on('markgeocode', function(e) {
+    var latlng = e.geocode.center;
+    L.marker(latlng).addTo(map)
+        .bindPopup(e.geocode.name)
+        .openPopup();
+    map.setView(latlng, 13);
+})
+.addTo(map);
+
+
+    </script>
+</body>
+</html>
