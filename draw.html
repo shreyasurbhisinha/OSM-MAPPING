@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>India Weather Map</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+
+    <style>
+        #map { height: 100vh; }
+        .info {
+            padding: 10px;
+            background: white;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            border-radius: 5px;
+            text-align: left;
+        }
+        .legend {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            line-height: 18px;
+            position: absolute;
+            bottom: 20px;
+            right: 10px;
+            padding: 10px;
+            z-index: 1000;
+        }
+        .legend i {
+            width: 18px;
+            height: 18px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+<script>
+    var map = L.map('map').setView([22.3511, 78.6677], 5);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    var info = L.control();
+    info.onAdd = function () {
+        this._div = L.DomUtil.create('div', 'info');
+        this.update();
+        return this._div;
+    };
+    info.update = function (props) {
+        this._div.innerHTML = props ? `<strong>${props.district}, ${props.state}</strong><br>Temperature: ${props.temp}°C<br>Climate: ${props.climate}`
+                                    : 'Hover over a district';
+    };
+    info.addTo(map);
+
+    var tempMarker = null; 
+
+    async function getWeather(lat, lon) {
+        const apiKey = '69cb6d53988feacb5435888a4b0ce238';  
+        const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${apiKey}`;
+        try {
+            let response = await fetch(url);
+            let data = await response.json();
+            return {
+                temp: data.main.temp,
+                climate: data.weather[0].description
+            };
+        } catch (error) {
+            console.log("Weather API Error:", error);
+            return { temp: "N/A", climate: "N/A" };
+        }
+    }
+
+    function getColor(temp) {
+        return temp > 35 ? "#FF5733" : 
+               temp > 20 ? "#FFC300" :  
+                           "#2ECC71";  
+    }
+
+    let geojsonLayer = null;
+    
+    fetch('map.geojson')
+        .then(response => response.json())
+        .then(data => {
+            geojsonLayer = L.geoJSON(data, {
+                style: function (feature) {
+                    return {
+                        color: "black",
+                        weight: 1,
+                        fillOpacity: 0.5,
+                        fillColor: "#d3d3d3"
+                    };
+                },
+                onEachFeature: async function (feature, layer) {
+                    let lat = 0, lon = 0;
+                    let coordinates = feature.geometry.coordinates[0]; 
+
+                    if (Array.isArray(coordinates[0][0])) {
+                        let sumLat = 0, sumLon = 0, count = 0;
+                        coordinates[0].forEach(coord => {
+                            sumLat += coord[1];
+                            sumLon += coord[0];
+                            count++;
+                        });
+                        lat = sumLat / count;
+                        lon = sumLon / count;
+                    } else {
+                        lat = coordinates[1];
+                        lon = coordinates[0];
+                    }
+
+                    let weatherData = await getWeather(lat, lon);
+                    let temp = weatherData.temp;
+                    let climate = weatherData.climate;
+
+                    feature.properties.temp = temp;
+                    feature.properties.climate = climate;
+
+                    layer.setStyle({ fillColor: getColor(temp) });
+
+                    layer.on("mouseover", function () {
+                        info.update({
+                            district: feature.properties.district,
+                            state: feature.properties.state,
+                            temp: temp,
+                            climate: climate
+                        });
+                    });
+
+                    layer.on("mouseout", function () {
+                        info.update();
+                    });
+
+                    layer.on("click", function (e) {
+                        if (tempMarker) {
+                            map.removeLayer(tempMarker);
+                        }
+                        tempMarker = L.marker(e.latlng)
+                            .bindPopup(`<b>${feature.properties.district}</b><br>Temperature: ${temp}°C`)
+                            .addTo(map)
+                            .openPopup();
+                    });
+
+                    layer.options.district = feature.properties.district;
+                    layer.options.temp = temp;
+                }
+            }).addTo(map);
+        });
+
+    L.Control.geocoder().addTo(map);
+
+    var drawnItems = new L.FeatureGroup();
+    map.addLayer(drawnItems);
+
+    var drawControl = new L.Control.Draw({
+        edit: {
+            featureGroup: drawnItems
+        },
+        draw: {
+            polyline: false,
+            polygon: false,
+            rectangle: false,
+            marker: false,
+            circle: true
+        }
+    });
+
+    map.addControl(drawControl);
+
+    map.on(L.Draw.Event.CREATED, function (event) {
+    let layer = event.layer;
+    let latlng = layer.getLatLng();
+    let radius = layer.getRadius(); // Get radius of the drawn circle
+
+    let districtsInsideCircle = [];
+
+    geojsonLayer.eachLayer(function (districtLayer) {
+        if (districtLayer.feature && districtLayer.feature.geometry) {
+            let coordinates = districtLayer.feature.geometry.coordinates[0];
+            let lat = 0, lon = 0;
+
+            if (Array.isArray(coordinates[0][0])) {
+                let sumLat = 0, sumLon = 0, count = 0;
+                coordinates[0].forEach(coord => {
+                    sumLat += coord[1];
+                    sumLon += coord[0];
+                    count++;
+                });
+                lat = sumLat / count;
+                lon = sumLon / count;
+            } else {
+                lat = coordinates[1];
+                lon = coordinates[0];
+            }
+
+            let districtLatLng = L.latLng(lat, lon);
+
+            if (map.distance(latlng, districtLatLng) <= radius) {
+                districtsInsideCircle.push({
+                    name: districtLayer.feature.properties.district,
+                    temp: districtLayer.feature.properties.temp
+                });
+            }
+        }
+    });
+
+    if (districtsInsideCircle.length > 0) {
+        let popupContent = "<b>Districts Inside Circle:</b><br>";
+        districtsInsideCircle.forEach(d => {
+            popupContent += `${d.name}: ${d.temp}°C<br>`;
+        });
+
+        layer.bindPopup(popupContent).openPopup();
+    } else {
+        layer.bindPopup("No districts found inside the circle.").openPopup();
+    }
+
+    drawnItems.addLayer(layer);
+});
+
+
+    var legend = L.control({ position: "bottomright" });
+    legend.onAdd = function () {
+        var div = L.DomUtil.create("div", "legend");
+
+        div.innerHTML += "<b>Temperature Levels</b><br>";
+        div.innerHTML += '<input type="checkbox" id="hotCheck" checked> <i style="background: #FF5733"></i> Hot (>35°C)<br>';
+        div.innerHTML += '<input type="checkbox" id="moderateCheck" checked> <i style="background: #FFC300"></i> Moderate (20-35°C)<br>';
+        div.innerHTML += '<input type="checkbox" id="coldCheck" checked> <i style="background: #2ECC71"></i> Cold (<20°C)<br>';
+
+        return div;
+    };
+    legend.addTo(map);
+
+    function updateMapColors() {
+        geojsonLayer.eachLayer(layer => {
+            let temp = layer.options.temp;
+            let color = getColor(temp);
+
+            let isVisible = (
+                (temp > 35 && document.getElementById("hotCheck").checked) ||
+                (temp > 20 && temp <= 35 && document.getElementById("moderateCheck").checked) ||
+                (temp <= 20 && document.getElementById("coldCheck").checked)
+            );
+
+            layer.setStyle({
+                fillColor: isVisible ? color : "transparent",
+                fillOpacity: isVisible ? 0.5 : 0
+            });
+        });
+    }
+
+    document.addEventListener("change", function () {
+        updateMapColors();
+    });
+
+</script>
+
+</body>
+</html>
